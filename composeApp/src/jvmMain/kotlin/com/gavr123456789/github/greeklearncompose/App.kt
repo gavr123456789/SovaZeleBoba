@@ -44,7 +44,7 @@ import java.io.File
 @Composable
 @Preview
 fun App() {
-	val orangeDarkColorScheme = darkColorScheme(
+    val orangeDarkColorScheme = darkColorScheme(
         primary = Color(0xFFFF9800),          // main orange
         onPrimary = Color(0xFF000000),        // black text/icons on orange
         primaryContainer = Color(0xFFFFB74D), // lighter orange for containers
@@ -59,20 +59,20 @@ fun App() {
         onSurface = Color(0xFFFFE0B2),
         error = Color(0xFFFF5252),
         onError = Color(0xFF000000),
-	)
+    )
 
-	MaterialTheme(
-		colorScheme = orangeDarkColorScheme
-	) {
-		Surface(
-			modifier = Modifier
-				.background(MaterialTheme.colorScheme.background)
-				.safeContentPadding()
-				.fillMaxSize()
-		) {
-			WordMatchApp()
-		}
-	}
+    MaterialTheme(
+        colorScheme = orangeDarkColorScheme
+    ) {
+        Surface(
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.background)
+                .safeContentPadding()
+                .fillMaxSize()
+        ) {
+            WordMatchApp()
+        }
+    }
 }
 
 private data class WordPair(
@@ -81,10 +81,10 @@ private data class WordPair(
 )
 
 private enum class ScreenState {
-	    Start,
-	    Game,
-	    History,
-	}
+    Start,
+    Game,
+    History,
+}
 
 @Composable
 private fun WordMatchApp() {
@@ -93,11 +93,14 @@ private fun WordMatchApp() {
     var lastFile by remember { mutableStateOf<File?>(null) }
     var invert by remember { mutableStateOf(false) }
     var gameId by remember { mutableStateOf(0) }
+    var pageSize by remember { mutableStateOf(5) }
 
     when (screenState) {
         ScreenState.Start -> StartScreen(
             invert = invert,
             onInvertChanged = { invert = it },
+            pageSize = pageSize,
+            onPageSizeChanged = { pageSize = it },
             onFileParsed = { file, pairs ->
                 lastFile = file
                 wordPairs = if (invert) {
@@ -116,7 +119,7 @@ private fun WordMatchApp() {
 
         ScreenState.Game -> GameScreen(
             pairs = wordPairs,
-            pageSize = 5,
+            pageSize = pageSize,
             gameId = gameId,
             gameName = lastFile?.name,
             onRetry = {
@@ -161,18 +164,20 @@ private fun WordMatchApp() {
 private fun StartScreen(
     invert: Boolean,
     onInvertChanged: (Boolean) -> Unit,
+    pageSize: Int,
+    onPageSizeChanged: (Int) -> Unit,
     onFileParsed: (File, List<WordPair>) -> Unit,
     onOpenHistory: () -> Unit,
 ) {
     var selectedFilePath by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-   Column(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-      		verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.Center,
     ) {
         Text(text = "Word Matching Game", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(16.dp))
@@ -183,52 +188,89 @@ private fun StartScreen(
         )
         Spacer(modifier = Modifier.height(24.dp))
 
-		Row(
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			androidx.compose.material3.Checkbox(
-				checked = invert,
-				onCheckedChange = { onInvertChanged(it) },
-			)
-			Spacer(modifier = Modifier.width(8.dp))
-			Text(text = "Invert (translation - word)", style = MaterialTheme.typography.bodyMedium)
-		}
-		Spacer(modifier = Modifier.height(24.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            androidx.compose.material3.Checkbox(
+                checked = invert,
+                onCheckedChange = { onInvertChanged(it) },
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(text = "Invert (translation - word)", style = MaterialTheme.typography.bodyMedium)
+        }
+        Spacer(modifier = Modifier.height(24.dp))
 
-	   			Button(onClick = {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Items per page:",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(
+                    onClick = { onPageSizeChanged((pageSize - 1).coerceAtLeast(1)) },
+                ) {
+                    Text(text = "<")
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Button(
+                    onClick = {},
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                    enabled = false,
+                ) {
+                    Text(text = pageSize.toString(), color = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Button(
+                    onClick = { onPageSizeChanged((pageSize + 1).coerceAtMost(10)) },
+                ) {
+                    Text(text = ">")
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(onClick = {
             val file = chooseFile()
             if (file != null) {
                 selectedFilePath = file.absolutePath
-					val pairs = parseWordPairs(file)
-					if (pairs.isEmpty()) {
-						errorMessage = "Could not find any word pairs in the file"
-					} else {
-						errorMessage = null
-						onFileParsed(file, pairs)
-					}
-				} else {
-					selectedFilePath = null
-				}
-			}) {
-		            	Text("Choose file and start")
-		    	}
+                val pairs = parseWordPairs(file)
+                if (pairs.isEmpty()) {
+                    errorMessage = "Could not find any word pairs in the file"
+                } else {
+                    errorMessage = null
+                    onFileParsed(file, pairs)
+                }
+            } else {
+                selectedFilePath = null
+            }
+        }) {
+            Text("Choose file and start")
+        }
 
-		    	selectedFilePath?.let {
-		    		Spacer(modifier = Modifier.height(16.dp))
-		    		Text(text = "File: $it", style = MaterialTheme.typography.bodySmall)
-		    	}
+        selectedFilePath?.let {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(text = "File: $it", style = MaterialTheme.typography.bodySmall)
+        }
 
-		    	errorMessage?.let {
-		    		Spacer(modifier = Modifier.height(8.dp))
-		    		Text(text = it, color = Color.Red, style = MaterialTheme.typography.bodySmall)
-		    	}
+        errorMessage?.let {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = it, color = Color.Red, style = MaterialTheme.typography.bodySmall)
+        }
 
-		    	Spacer(modifier = Modifier.height(24.dp))
-		    	Button(onClick = onOpenHistory) {
-		    		Text(text = "Show history")
-		    	}
-		    }
-	    }
+        Spacer(modifier = Modifier.height(24.dp))
+        Button(onClick = onOpenHistory) {
+            Text(text = "Show history")
+        }
+    }
+}
 
 @Composable
 private fun GameScreen(
@@ -322,7 +364,7 @@ private fun GameScreen(
             .focusRequester(focusRequester)
             .focusTarget()
             .onPreviewKeyEvent { event ->
-	            			// Keyboard is not used on the results screen
+                // Keyboard is not used on the results screen
                 if (isCompleted) return@onPreviewKeyEvent false
 
                 if (event.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
@@ -342,13 +384,13 @@ private fun GameScreen(
 
                 if (index < 0 || index >= pagePairs.size) return@onPreviewKeyEvent false
 
-	            			if (leftSelection == null) {
-					// The first digit selects an item in the left column
+                if (leftSelection == null) {
+                    // The first digit selects an item in the left column
                     if (!matchedLeftIndices.contains(index)) {
                         leftSelection = if (leftSelection == index) null else index
                     }
-				} else {
-					// The second digit selects an item in the right column (position in the right list)
+                } else {
+                    // The second digit selects an item in the right column (position in the right list)
                     if (index < rightOrder.size) {
                         val rightPos = index
                         val realIndex = rightOrder[rightPos]
@@ -367,7 +409,7 @@ private fun GameScreen(
             focusRequester.requestFocus()
         }
         if (isCompleted) {
-	            // Final statistics screen
+            // Final statistics screen
             val successCount = pairs.size
             val errorCount = totalErrors
             val attempts = successCount + errorCount
@@ -381,37 +423,37 @@ private fun GameScreen(
             }
 
             Text(
-	                text = "Result",
+                text = "Result",
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-	                text = "Correct/Errors: ${successCount}/${errorCount}",
+                text = "Correct/Errors: ${successCount}/${errorCount}",
                 style = MaterialTheme.typography.bodyLarge,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-	                text = "Success rate: ${successPercent}%",
+                text = "Success rate: ${successPercent}%",
                 style = MaterialTheme.typography.bodyLarge,
             )
             timeText?.let {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-	                	text = it,
+                    text = it,
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
             Spacer(modifier = Modifier.height(24.dp))
             Button(onClick = { onRetry() }) {
-	                Text("Retry same file")
+                Text("Retry same file")
             }
             Spacer(modifier = Modifier.height(12.dp))
             Button(onClick = { onBackToMenu() }) {
-	                Text("Back to main menu")
+                Text("Back to main menu")
             }
         } else {
             Text(
-	                text = "Page ${currentPage + 1} of $totalPages",
+                text = "Page ${currentPage + 1} of $totalPages",
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -489,7 +531,7 @@ private fun WordButton(
         else -> MaterialTheme.colorScheme.secondaryContainer
     }
 
-	    // Explicit text color so it stays readable even on disabled buttons
+    // Explicit text color so it stays readable even on disabled buttons
     val contentColor = when {
         correct -> Color.Black
         selected -> Color.Black
@@ -547,7 +589,8 @@ private fun appendResultToHistory(
 
         val safeName = name?.ifBlank { null } ?: "-"
 
-        val line = "name=$safeName;correct=$successCount;errors=$errorCount;successRate=${successPercent}%;time=$timeText" + "\n"
+        val line =
+            "name=$safeName;correct=$successCount;errors=$errorCount;successRate=${successPercent}%;time=$timeText" + "\n"
 
         file.appendText(line)
     } catch (_: Exception) {
