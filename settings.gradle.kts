@@ -1,35 +1,35 @@
-rootProject.name = "SovaZeleBoba"
+rootProject.name = "GreekLearnCompose"
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
     repositories {
         google {
-            content { 
-              	includeGroupByRegex("com\\.android.*")
-              	includeGroupByRegex("com\\.google.*")
-              	includeGroupByRegex("androidx.*")
-              	includeGroupByRegex("android.*")
+            mavenContent {
+                includeGroupAndSubgroups("androidx")
+                includeGroupAndSubgroups("com.android")
+                includeGroupAndSubgroups("com.google")
             }
         }
-        gradlePluginPortal()
         mavenCentral()
+        gradlePluginPortal()
     }
 }
 
 dependencyResolutionManagement {
     repositories {
         google {
-            content { 
-              	includeGroupByRegex("com\\.android.*")
-              	includeGroupByRegex("com\\.google.*")
-              	includeGroupByRegex("androidx.*")
-              	includeGroupByRegex("android.*")
+            mavenContent {
+                includeGroupAndSubgroups("androidx")
+                includeGroupAndSubgroups("com.android")
+                includeGroupAndSubgroups("com.google")
             }
         }
         mavenCentral()
     }
 }
-include(":sharedUI")
-include(":androidApp")
-include(":desktopApp")
-include(":webApp")
 
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+
+include(":composeApp")
