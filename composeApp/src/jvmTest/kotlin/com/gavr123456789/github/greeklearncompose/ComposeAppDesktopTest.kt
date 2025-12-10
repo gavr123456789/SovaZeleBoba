@@ -1,4 +1,4 @@
-package com.gavr123456789.github.greeklearncompose
+package com.gavr123456789.github.sovazeleboba
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

@@ -1,4 +1,4 @@
-rootProject.name = "GreekLearnCompose"
+rootProject.name = "SovaZeleBoba"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {

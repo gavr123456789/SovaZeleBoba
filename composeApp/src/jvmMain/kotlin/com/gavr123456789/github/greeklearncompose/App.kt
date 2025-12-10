@@ -1,4 +1,4 @@
-package com.gavr123456789.github.greeklearncompose
+package com.gavr123456789.github.sovazeleboba
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement

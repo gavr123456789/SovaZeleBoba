@@ -34,11 +34,11 @@ kotlin {
 
 compose.desktop {
     application {
-        mainClass = "com.gavr123456789.github.greeklearncompose.MainKt"
+        mainClass = "com.gavr123456789.github.sovazeleboba.MainKt"
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "com.gavr123456789.github.greeklearncompose"
+            packageName = "com.gavr123456789.github.sovazeleboba"
             packageVersion = "1.0.0"
         }
     }

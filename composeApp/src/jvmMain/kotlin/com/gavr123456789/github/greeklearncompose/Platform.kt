@@ -1,4 +1,4 @@
-package com.gavr123456789.github.greeklearncompose
+package com.gavr123456789.github.sovazeleboba
 
 class JVMPlatform {
     val name: String = "Java ${System.getProperty("java.version")}"
