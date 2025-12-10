@@ -81,9 +81,10 @@ private data class WordPair(
 )
 
 private enum class ScreenState {
-    Start,
-    Game,
-}
+	    Start,
+	    Game,
+	    History,
+	}
 
 @Composable
 private fun WordMatchApp() {
@@ -108,12 +109,16 @@ private fun WordMatchApp() {
                     screenState = ScreenState.Game
                 }
             },
+            onOpenHistory = {
+                screenState = ScreenState.History
+            },
         )
 
         ScreenState.Game -> GameScreen(
             pairs = wordPairs,
             pageSize = 5,
             gameId = gameId,
+            gameName = lastFile?.name,
             onRetry = {
                 val file = lastFile
                 if (file == null) {
@@ -139,9 +144,14 @@ private fun WordMatchApp() {
                 gameId += 1
             },
             onBackToMenu = {
-                // After finishing all pages, return to the start screen
                 screenState = ScreenState.Start
                 wordPairs = emptyList()
+            },
+        )
+
+        ScreenState.History -> HistoryScreen(
+            onBackToMenu = {
+                screenState = ScreenState.Start
             },
         )
     }
@@ -152,6 +162,7 @@ private fun StartScreen(
     invert: Boolean,
     onInvertChanged: (Boolean) -> Unit,
     onFileParsed: (File, List<WordPair>) -> Unit,
+    onOpenHistory: () -> Unit,
 ) {
     var selectedFilePath by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -184,7 +195,7 @@ private fun StartScreen(
 		}
 		Spacer(modifier = Modifier.height(24.dp))
 
-     			Button(onClick = {
+	   			Button(onClick = {
             val file = chooseFile()
             if (file != null) {
                 selectedFilePath = file.absolutePath
@@ -199,26 +210,32 @@ private fun StartScreen(
 					selectedFilePath = null
 				}
 			}) {
-            			Text("Choose file and start")
-            		}
+		            	Text("Choose file and start")
+		    	}
 
-            		selectedFilePath?.let {
-            			Spacer(modifier = Modifier.height(16.dp))
-            			Text(text = "File: $it", style = MaterialTheme.typography.bodySmall)
-            		}
+		    	selectedFilePath?.let {
+		    		Spacer(modifier = Modifier.height(16.dp))
+		    		Text(text = "File: $it", style = MaterialTheme.typography.bodySmall)
+		    	}
 
-            		errorMessage?.let {
-            			Spacer(modifier = Modifier.height(8.dp))
-            			Text(text = it, color = Color.Red, style = MaterialTheme.typography.bodySmall)
-            		}
-            	}
-            }
+		    	errorMessage?.let {
+		    		Spacer(modifier = Modifier.height(8.dp))
+		    		Text(text = it, color = Color.Red, style = MaterialTheme.typography.bodySmall)
+		    	}
+
+		    	Spacer(modifier = Modifier.height(24.dp))
+		    	Button(onClick = onOpenHistory) {
+		    		Text(text = "Show history")
+		    	}
+		    }
+	    }
 
 @Composable
 private fun GameScreen(
     pairs: List<WordPair>,
     pageSize: Int,
     gameId: Int,
+    gameName: String?,
     onRetry: () -> Unit,
     onBackToMenu: () -> Unit,
 ) {
@@ -280,6 +297,7 @@ private fun GameScreen(
                     val successPercent = if (attempts > 0) (successCount * 100) / attempts else 0
 
                     appendResultToHistory(
+                        name = gameName,
                         successCount = successCount,
                         errorCount = errorCount,
                         successPercent = successPercent,
@@ -505,6 +523,7 @@ private fun chooseFile(): File? {
 }
 
 private fun appendResultToHistory(
+    name: String?,
     successCount: Int,
     errorCount: Int,
     successPercent: Int,
@@ -526,7 +545,9 @@ private fun appendResultToHistory(
             "%d:%02d".format(minutes, seconds)
         } ?: "-"
 
-        val line = "correct=$successCount;errors=$errorCount;successRate=${successPercent}%;time=$timeText" + "\n"
+        val safeName = name?.ifBlank { null } ?: "-"
+
+        val line = "name=$safeName;correct=$successCount;errors=$errorCount;successRate=${successPercent}%;time=$timeText" + "\n"
 
         file.appendText(line)
     } catch (_: Exception) {
