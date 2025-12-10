@@ -232,6 +232,10 @@ private fun GameScreen(
     var totalErrors by remember(gameId) { mutableStateOf(0) }
     var isCompleted by remember(gameId) { mutableStateOf(false) }
 
+    // Timer: start at the beginning of the game and fix the result on the final screen
+    val startTimeMillis by remember(gameId) { mutableStateOf(System.currentTimeMillis()) }
+    var totalTimeMillis by remember(gameId) { mutableStateOf<Long?>(null) }
+
     var leftSelection by remember(gameId, currentPage) { mutableStateOf<Int?>(null) }
     var rightSelection by remember(gameId, currentPage) { mutableStateOf<Int?>(null) }
     var matchedLeftIndices by remember(gameId, currentPage) { mutableStateOf(setOf<Int>()) }
@@ -268,7 +272,19 @@ private fun GameScreen(
                 if (currentPage + 1 < totalPages) {
                     currentPage += 1
                 } else {
-	               				// All pages have been completed, show the final statistics
+                    totalTimeMillis = System.currentTimeMillis() - startTimeMillis
+
+                    val successCount = pairs.size
+                    val errorCount = totalErrors
+                    val attempts = successCount + errorCount
+                    val successPercent = if (attempts > 0) (successCount * 100) / attempts else 0
+
+                    appendResultToHistory(
+                        successCount = successCount,
+                        errorCount = errorCount,
+                        successPercent = successPercent,
+                        totalTimeMillis = totalTimeMillis,
+                    )
                     isCompleted = true
                 }
             }
@@ -339,6 +355,13 @@ private fun GameScreen(
             val attempts = successCount + errorCount
             val successPercent = if (attempts > 0) (successCount * 100) / attempts else 0
 
+            val timeText = totalTimeMillis?.let { millis ->
+                val totalSeconds = millis / 1000
+                val minutes = totalSeconds / 60
+                val seconds = totalSeconds % 60
+                "Time: %d:%02d".format(minutes, seconds)
+            }
+
             Text(
 	                text = "Result",
                 style = MaterialTheme.typography.titleMedium,
@@ -353,6 +376,13 @@ private fun GameScreen(
 	                text = "Success rate: ${successPercent}%",
                 style = MaterialTheme.typography.bodyLarge,
             )
+            timeText?.let {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+	                	text = it,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
             Spacer(modifier = Modifier.height(24.dp))
             Button(onClick = { onRetry() }) {
 	                Text("Retry same file")
@@ -472,6 +502,36 @@ private fun chooseFile(): File? {
         return File(directory, file)
     }
     return null
+}
+
+private fun appendResultToHistory(
+    successCount: Int,
+    errorCount: Int,
+    successPercent: Int,
+    totalTimeMillis: Long?,
+) {
+    try {
+        val homeDir = System.getProperty("user.home") ?: return
+        val dir = File(homeDir, ".config/Sova")
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+
+        val file = File(dir, "results.txt")
+
+        val timeText = totalTimeMillis?.let { millis ->
+            val totalSeconds = millis / 1000
+            val minutes = totalSeconds / 60
+            val seconds = totalSeconds % 60
+            "%d:%02d".format(minutes, seconds)
+        } ?: "-"
+
+        val line = "correct=$successCount;errors=$errorCount;successRate=${successPercent}%;time=$timeText" + "\n"
+
+        file.appendText(line)
+    } catch (_: Exception) {
+        // Игнорируем ошибки записи, чтобы не падать из-за проблем с файловой системой
+    }
 }
 
 private fun parseWordPairs(file: File): List<WordPair> {
