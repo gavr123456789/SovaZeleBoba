@@ -86,6 +86,7 @@ private data class WordPair(
 private enum class ScreenState {
     Start,
     Game,
+    Selector,
     History,
 }
 
@@ -113,6 +114,17 @@ private fun WordMatchApp() {
                 }
                 if (pairs.isNotEmpty()) {
                     screenState = ScreenState.Game
+                }
+            },
+            onFileParsedSelector = { file, pairs ->
+                lastFile = file
+                wordPairs = if (invert) {
+                    pairs.map { WordPair(original = it.translation, translation = it.original) }
+                } else {
+                    pairs
+                }
+                if (pairs.isNotEmpty()) {
+                    screenState = ScreenState.Selector
                 }
             },
             onOpenHistory = {
@@ -160,6 +172,41 @@ private fun WordMatchApp() {
                 screenState = ScreenState.Start
             },
         )
+
+        ScreenState.Selector -> SelectorScreen(
+            pairs = wordPairs,
+            pageSize = pageSize,
+            gameId = gameId,
+            gameName = lastFile?.name,
+            onRetry = {
+                val file = lastFile
+                if (file == null) {
+                    lastFile = null
+                    wordPairs = emptyList()
+                    screenState = ScreenState.Start
+                    return@SelectorScreen
+                }
+
+                val pairs = parseWordPairs(file)
+                if (pairs.isEmpty()) {
+                    lastFile = null
+                    wordPairs = emptyList()
+                    screenState = ScreenState.Start
+                    return@SelectorScreen
+                }
+
+                wordPairs = if (invert) {
+                    pairs.map { WordPair(original = it.translation, translation = it.original) }
+                } else {
+                    pairs
+                }
+                gameId += 1
+            },
+            onBackToMenu = {
+                screenState = ScreenState.Start
+                wordPairs = emptyList()
+            },
+        )
     }
 }
 
@@ -170,6 +217,7 @@ private fun StartScreen(
     pageSize: Int,
     onPageSizeChanged: (Int) -> Unit,
     onFileParsed: (File, List<WordPair>) -> Unit,
+    onFileParsedSelector: (File, List<WordPair>) -> Unit,
     onOpenHistory: () -> Unit,
 ) {
     var selectedFilePath by remember { mutableStateOf<String?>(null) }
@@ -256,6 +304,25 @@ private fun StartScreen(
             }
         }) {
             Text("Choose file and start")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Button(onClick = {
+            val file = chooseFile()
+            if (file != null) {
+                selectedFilePath = file.absolutePath
+                val pairs = parseWordPairs(file)
+                if (pairs.isEmpty()) {
+                    errorMessage = "Could not find any word pairs in the file"
+                } else {
+                    errorMessage = null
+                    onFileParsedSelector(file, pairs)
+                }
+            } else {
+                selectedFilePath = null
+            }
+        }) {
+            Text("Start Selector mode")
         }
 
         selectedFilePath?.let {
@@ -543,6 +610,163 @@ private fun GameScreen(
         }
     }
 }
+}
+
+@Composable
+private fun SelectorScreen(
+    pairs: List<WordPair>,
+    pageSize: Int,
+    gameId: Int,
+    gameName: String?,
+    onRetry: () -> Unit,
+    onBackToMenu: () -> Unit,
+) {
+    var currentPage by remember(gameId) { mutableStateOf(0) }
+    val totalPages = (pairs.size + pageSize - 1) / pageSize
+    val pagePairs = pairs.drop(currentPage * pageSize).take(pageSize)
+
+    // Статистика
+    var totalCorrect by remember(gameId) { mutableStateOf(0) }
+    var totalErrors by remember(gameId) { mutableStateOf(0) }
+    var isCompleted by remember(gameId) { mutableStateOf(false) }
+
+    // Таймер
+    val startTimeMillis by remember(gameId) { mutableStateOf(System.currentTimeMillis()) }
+    var totalTimeMillis by remember(gameId) { mutableStateOf<Long?>(null) }
+
+    // Текущее слово в пределах страницы
+    var questionIndex by remember(gameId, currentPage) { mutableStateOf(0) }
+
+    val currentPair = pagePairs.getOrNull(questionIndex)
+
+    // Варианты ответов для текущего слова
+    val options: List<String> = remember(gameId, currentPage, questionIndex) {
+        val allTranslations = pairs.map { it.translation }.distinct()
+        val correct = currentPair?.translation
+        if (correct == null) return@remember emptyList()
+        val incorrect = allTranslations.filter { it != correct }.shuffled().take(4)
+        (listOf(correct) + incorrect).shuffled()
+    }
+
+    var disabledOptionIdx by remember(gameId, currentPage, questionIndex) { mutableStateOf(setOf<Int>()) }
+
+    fun goNext() {
+        if (questionIndex + 1 < pagePairs.size) {
+            questionIndex += 1
+        } else {
+            if (currentPage + 1 < totalPages) {
+                currentPage += 1
+            } else {
+                totalTimeMillis = System.currentTimeMillis() - startTimeMillis
+                val successCount = pairs.size
+                val errorCount = totalErrors
+                val attempts = successCount + errorCount
+                val successPercent = if (attempts > 0) (successCount * 100) / attempts else 0
+
+                appendResultToHistory(
+                    name = gameName,
+                    successCount = successCount,
+                    errorCount = errorCount,
+                    successPercent = successPercent,
+                    totalTimeMillis = totalTimeMillis,
+                )
+                isCompleted = true
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Кнопка назад в меню
+        Button(
+            onClick = onBackToMenu,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp)
+        ) {
+            Text("← Меню")
+        }
+
+        if (isCompleted) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = "Selector finished",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                val attempts = totalCorrect + totalErrors
+                val successPercent = if (attempts > 0) (totalCorrect * 100) / attempts else 0
+                Text("Correct: $totalCorrect, Errors: $totalErrors, Success: $successPercent%")
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = onRetry) { Text("Retry") }
+                    Button(onClick = onBackToMenu) { Text("Back to menu") }
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Top,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(text = "Selector Mode", style = MaterialTheme.typography.headlineMedium)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Заголовок с прогрессом
+                val globalIndex = currentPage * pageSize + questionIndex + 1
+                Text(
+                    text = "Word $globalIndex of ${pairs.size}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+                // Слово-оригинал
+                Text(
+                    text = currentPair?.original ?: "",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Кнопки с вариантами
+                options.forEachIndexed { idx, option ->
+                    val isDisabled = disabledOptionIdx.contains(idx)
+                    Button(
+                        onClick = {
+                            if (currentPair == null) return@Button
+                            if (option == currentPair.translation) {
+                                totalCorrect += 1
+                                // Переходим к следующему слову
+                                goNext()
+                            } else {
+                                totalErrors += 1
+                                disabledOptionIdx = disabledOptionIdx + idx
+                            }
+                        },
+                        enabled = !isDisabled,
+                        colors = ButtonDefaults.buttonColors(
+                            // Контрасты для тёмной темы при disabled
+                            disabledContainerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                            disabledContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Text(option)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
