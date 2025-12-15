@@ -1,8 +1,9 @@
 package com.gavr123456789.github.sovazeleboba
-
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,6 +12,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -272,6 +275,7 @@ private fun StartScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GameScreen(
     pairs: List<WordPair>,
@@ -300,31 +304,38 @@ private fun GameScreen(
     var matchedLeftIndices by remember(gameId, currentPage) { mutableStateOf(setOf<Int>()) }
     var matchedRightIndices by remember(gameId, currentPage) { mutableStateOf(setOf<Int>()) }
 
+    // Separate visual order for the left and right columns so we can animate movement
+    var leftOrder by remember(gameId, currentPage) {
+        mutableStateOf(pagePairs.indices.toList())
+    }
     // Separate order for the right column to shuffle translations
     var rightOrder by remember(gameId, currentPage) {
         mutableStateOf(pagePairs.indices.shuffled())
     }
 
-    fun handleMatch(leftIndex: Int, rightIndexInRightOrder: Int) {
-        val realRightIndex = rightOrder[rightIndexInRightOrder]
-        val leftPair = pagePairs.getOrNull(leftIndex)
-        val rightPair = pagePairs.getOrNull(realRightIndex)
+    fun handleMatch(leftPairIndex: Int, rightPairIndex: Int) {
+        val leftPair = pagePairs.getOrNull(leftPairIndex)
+        val rightPair = pagePairs.getOrNull(rightPairIndex)
 
         totalAttempts += 1
 
         if (
             leftPair != null &&
             rightPair != null &&
-            !matchedLeftIndices.contains(leftIndex) &&
-            !matchedRightIndices.contains(realRightIndex) &&
+            !matchedLeftIndices.contains(leftPairIndex) &&
+            !matchedRightIndices.contains(rightPairIndex) &&
             leftPair.translation == rightPair.translation
         ) {
-            val newMatchedLeft = matchedLeftIndices + leftIndex
-            val newMatchedRight = matchedRightIndices + realRightIndex
+            val newMatchedLeft = matchedLeftIndices + leftPairIndex
+            val newMatchedRight = matchedRightIndices + rightPairIndex
             matchedLeftIndices = newMatchedLeft
             matchedRightIndices = newMatchedRight
             leftSelection = null
             rightSelection = null
+
+            // Перемещаем правильно найденные элементы в начало списков с анимацией
+            leftOrder = listOf(leftPairIndex) + leftOrder.filter { it != leftPairIndex }
+            rightOrder = listOf(rightPairIndex) + rightOrder.filter { it != rightPairIndex }
 
             // The page is finished when all pairs on it are matched
             if (newMatchedLeft.size == pagePairs.size) {
@@ -357,13 +368,24 @@ private fun GameScreen(
 
     val focusRequester = remember { FocusRequester() }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp)
-            .focusRequester(focusRequester)
-            .focusTarget()
-            .onPreviewKeyEvent { event ->
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Кнопка "назад в меню" в верхнем левом углу
+        Button(
+            onClick = onBackToMenu,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp)
+        ) {
+            Text("← Меню")
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp)
+                .focusRequester(focusRequester)
+                .focusTarget()
+                .onPreviewKeyEvent { event ->
                 // Keyboard is not used on the results screen
                 if (isCompleted) return@onPreviewKeyEvent false
 
@@ -385,29 +407,27 @@ private fun GameScreen(
                 if (index < 0 || index >= pagePairs.size) return@onPreviewKeyEvent false
 
                 if (leftSelection == null) {
-                    // The first digit selects an item in the left column
-                    if (!matchedLeftIndices.contains(index)) {
-                        leftSelection = if (leftSelection == index) null else index
+                    // Первая цифра выбирает элемент в левой колонке по визуальной позиции
+                    val pairIndex = leftOrder.getOrNull(index) ?: return@onPreviewKeyEvent false
+                    if (!matchedLeftIndices.contains(pairIndex)) {
+                        leftSelection = if (leftSelection == pairIndex) null else pairIndex
                     }
                 } else {
-                    // The second digit selects an item in the right column (position in the right list)
-                    if (index < rightOrder.size) {
-                        val rightPos = index
-                        val realIndex = rightOrder[rightPos]
-                        if (!matchedRightIndices.contains(realIndex)) {
-                            rightSelection = rightPos
-                            handleMatch(leftSelection!!, rightPos)
-                        }
+                    // Вторая цифра выбирает элемент в правой колонке по визуальной позиции
+                    val rightPairIndex = rightOrder.getOrNull(index) ?: return@onPreviewKeyEvent false
+                    if (!matchedRightIndices.contains(rightPairIndex)) {
+                        rightSelection = rightPairIndex
+                        handleMatch(leftSelection!!, rightPairIndex)
                     }
                 }
 
                 true
-            },
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        LaunchedEffect(Unit) {
-            focusRequester.requestFocus()
-        }
+                },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            LaunchedEffect(Unit) {
+                focusRequester.requestFocus()
+            }
         if (isCompleted) {
             // Final statistics screen
             val successCount = pairs.size
@@ -462,14 +482,17 @@ private fun GameScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                Column(
+                LazyColumn(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("Original", style = MaterialTheme.typography.titleSmall)
-                    pagePairs.forEachIndexed { index, pair ->
-                        val isMatched = matchedLeftIndices.contains(index)
-                        val isSelected = leftSelection == index
+                    item {
+                        Text("Original", style = MaterialTheme.typography.titleSmall)
+                    }
+                    items(leftOrder, key = { it }) { pairIndex ->
+                        val pair = pagePairs[pairIndex]
+                        val isMatched = matchedLeftIndices.contains(pairIndex)
+                        val isSelected = leftSelection == pairIndex
                         WordButton(
                             text = pair.original,
                             enabled = !isMatched,
@@ -477,25 +500,28 @@ private fun GameScreen(
                             correct = isMatched,
                             onClick = {
                                 if (!isMatched) {
-                                    leftSelection = if (leftSelection == index) null else index
+                                    leftSelection = if (leftSelection == pairIndex) null else pairIndex
                                     if (rightSelection != null) {
-                                        handleMatch(index, rightSelection!!)
+                                        handleMatch(pairIndex, rightSelection!!)
                                     }
                                 }
                             },
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
 
-                Column(
+                LazyColumn(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("Translation", style = MaterialTheme.typography.titleSmall)
-                    rightOrder.forEachIndexed { rightPos, realIndex ->
-                        val pair = pagePairs[realIndex]
-                        val isMatched = matchedRightIndices.contains(realIndex)
-                        val isSelected = rightSelection == rightPos
+                    item {
+                        Text("Translation", style = MaterialTheme.typography.titleSmall)
+                    }
+                    items(rightOrder, key = { it }) { pairIndex ->
+                        val pair = pagePairs[pairIndex]
+                        val isMatched = matchedRightIndices.contains(pairIndex)
+                        val isSelected = rightSelection == pairIndex
                         WordButton(
                             text = pair.translation,
                             enabled = !isMatched,
@@ -503,18 +529,20 @@ private fun GameScreen(
                             correct = isMatched,
                             onClick = {
                                 if (!isMatched) {
-                                    rightSelection = if (rightSelection == rightPos) null else rightPos
+                                    rightSelection = if (rightSelection == pairIndex) null else pairIndex
                                     if (leftSelection != null) {
-                                        handleMatch(leftSelection!!, rightPos)
+                                        handleMatch(leftSelection!!, pairIndex)
                                     }
                                 }
                             },
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
             }
         }
     }
+}
 }
 
 @Composable
@@ -524,6 +552,7 @@ private fun WordButton(
     selected: Boolean,
     correct: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val backgroundColor = when {
         correct -> Color(0xFF4CAF50)
@@ -547,7 +576,7 @@ private fun WordButton(
             disabledContainerColor = backgroundColor,
             disabledContentColor = contentColor,
         ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
     ) {
         Text(text = text, color = contentColor)
     }

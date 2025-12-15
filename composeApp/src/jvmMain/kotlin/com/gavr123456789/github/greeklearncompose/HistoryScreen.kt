@@ -2,6 +2,7 @@ package com.gavr123456789.github.sovazeleboba
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,13 +42,23 @@ fun HistoryScreen(
 
     val entries = entriesState.value
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top,
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Button(
+            onClick = onBackToMenu,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp)
+        ) {
+            Text("← Меню")
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Top,
+            ) {
         Text(
             text = "History",
             style = MaterialTheme.typography.headlineSmall,
@@ -136,7 +147,7 @@ fun HistoryScreen(
                             modifier = Modifier.weight(1f),
                         )
                         Text(
-                            text = "${entry.time ?: "-"}",
+                            text = entry.time ?: "-",
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.weight(1f),
                         )
@@ -148,6 +159,7 @@ fun HistoryScreen(
         Spacer(modifier = Modifier.height(24.dp))
         Button(onClick = onBackToMenu) {
             Text(text = "Back to main menu")
+        }
         }
     }
 }
