@@ -20,9 +20,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -87,6 +90,7 @@ private enum class ScreenState {
     Start,
     Game,
     Selector,
+    Typing,
     History,
 }
 
@@ -125,6 +129,17 @@ private fun WordMatchApp() {
                 }
                 if (pairs.isNotEmpty()) {
                     screenState = ScreenState.Selector
+                }
+            },
+            onFileParsedTyping = { file, pairs ->
+                lastFile = file
+                wordPairs = if (invert) {
+                    pairs.map { WordPair(original = it.translation, translation = it.original) }
+                } else {
+                    pairs
+                }
+                if (pairs.isNotEmpty()) {
+                    screenState = ScreenState.Typing
                 }
             },
             onOpenHistory = {
@@ -207,6 +222,41 @@ private fun WordMatchApp() {
                 wordPairs = emptyList()
             },
         )
+
+        ScreenState.Typing -> TypingScreen(
+            pairs = wordPairs,
+            pageSize = pageSize,
+            gameId = gameId,
+            gameName = lastFile?.name,
+            onRetry = {
+                val file = lastFile
+                if (file == null) {
+                    lastFile = null
+                    wordPairs = emptyList()
+                    screenState = ScreenState.Start
+                    return@TypingScreen
+                }
+
+                val pairs = parseWordPairs(file)
+                if (pairs.isEmpty()) {
+                    lastFile = null
+                    wordPairs = emptyList()
+                    screenState = ScreenState.Start
+                    return@TypingScreen
+                }
+
+                wordPairs = if (invert) {
+                    pairs.map { WordPair(original = it.translation, translation = it.original) }
+                } else {
+                    pairs
+                }
+                gameId += 1
+            },
+            onBackToMenu = {
+                screenState = ScreenState.Start
+                wordPairs = emptyList()
+            },
+        )
     }
 }
 
@@ -218,6 +268,7 @@ private fun StartScreen(
     onPageSizeChanged: (Int) -> Unit,
     onFileParsed: (File, List<WordPair>) -> Unit,
     onFileParsedSelector: (File, List<WordPair>) -> Unit,
+    onFileParsedTyping: (File, List<WordPair>) -> Unit,
     onOpenHistory: () -> Unit,
 ) {
     var selectedFilePath by remember { mutableStateOf<String?>(null) }
@@ -323,6 +374,25 @@ private fun StartScreen(
             }
         }) {
             Text("Start Selector mode")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Button(onClick = {
+            val file = chooseFile()
+            if (file != null) {
+                selectedFilePath = file.absolutePath
+                val pairs = parseWordPairs(file)
+                if (pairs.isEmpty()) {
+                    errorMessage = "Could not find any word pairs in the file"
+                } else {
+                    errorMessage = null
+                    onFileParsedTyping(file, pairs)
+                }
+            } else {
+                selectedFilePath = null
+            }
+        }) {
+            Text("Start typing mode")
         }
 
         selectedFilePath?.let {
@@ -613,6 +683,210 @@ private fun GameScreen(
 }
 
 @Composable
+private fun TypingScreen(
+    pairs: List<WordPair>,
+    pageSize: Int,
+    gameId: Int,
+    gameName: String?,
+    onRetry: () -> Unit,
+    onBackToMenu: () -> Unit,
+) {
+    // Переходим к глобальной очереди слов без страниц
+    val initialTotal = remember(gameId) { pairs.size }
+    val queue = remember(gameId) { mutableStateListOf<WordPair>().also { it.addAll(pairs) } }
+    var currentIdx by remember(gameId) { mutableStateOf(0) }
+
+    var totalErrors by remember(gameId) { mutableStateOf(0) }
+    var isCompleted by remember(gameId) { mutableStateOf(false) }
+
+    val startTimeMillis by remember(gameId) { mutableStateOf(System.currentTimeMillis()) }
+    var totalTimeMillis by remember(gameId) { mutableStateOf<Long?>(null) }
+
+    val currentPair = queue.getOrNull(currentIdx)
+
+    var answer by remember(gameId, currentIdx) { mutableStateOf("") }
+    var lastIncorrect by remember(gameId, currentIdx) { mutableStateOf(false) }
+    var showAnswer by remember(gameId, currentIdx) { mutableStateOf(false) }
+
+    // Глобальный счётчик попыток по слову за сессию
+    val attemptsMap = remember(gameId) { mutableStateMapOf<String, Int>() }
+    fun keyFor(pair: WordPair): String = pair.original + "→" + pair.translation
+
+    fun finishIfNeeded() {
+        if (queue.isEmpty()) {
+            totalTimeMillis = System.currentTimeMillis() - startTimeMillis
+            val successCount = initialTotal
+            val errorCount = totalErrors
+            val attempts = successCount + errorCount
+            val successPercent = if (attempts > 0) (successCount * 100) / attempts else 0
+
+            appendResultToHistory(
+                name = gameName,
+                successCount = successCount,
+                errorCount = errorCount,
+                successPercent = successPercent,
+                totalTimeMillis = totalTimeMillis,
+            )
+            isCompleted = true
+        } else {
+            if (currentIdx >= queue.size) currentIdx = queue.lastIndex.coerceAtLeast(0)
+        }
+    }
+
+    fun goNextAfterCorrect() {
+        // Удаляем текущее слово как пройденное
+        if (currentIdx in queue.indices) {
+            queue.removeAt(currentIdx)
+        }
+        // Сброс локального состояния
+        answer = ""
+        lastIncorrect = false
+        showAnswer = false
+        // Индекс остаётся на этой позиции — сюда сместится следующее слово
+        finishIfNeeded()
+    }
+
+    fun moveCurrentToEnd() {
+        val pair = currentPair ?: return
+        if (currentIdx in queue.indices) {
+            queue.removeAt(currentIdx)
+            queue.add(pair)
+        }
+        // Сброс локального состояния и остаёмся на той же позиции
+        answer = ""
+        lastIncorrect = false
+        showAnswer = false
+        // currentIdx не меняем; теперь на этой позиции — следующее слово
+        finishIfNeeded()
+    }
+
+    fun submit() {
+        val expected = currentPair?.translation ?: return
+        val norm = answer.trim().lowercase()
+        val expNorm = expected.trim().lowercase()
+        if (norm == expNorm) {
+            goNextAfterCorrect()
+        } else {
+            totalErrors += 1
+            lastIncorrect = true
+            val pair = currentPair ?: return
+            val k = keyFor(pair)
+            val newCount = (attemptsMap[k] ?: 0) + 1
+            attemptsMap[k] = newCount
+            if (newCount % 3 == 0) {
+                // Порог достигнут — показываем правильный ответ и ждём «Далее»
+                showAnswer = true
+            }
+        }
+    }
+
+    val focusRequester = remember { FocusRequester() }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Button(
+            onClick = onBackToMenu,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp)
+        ) { Text("← Меню") }
+
+        if (isCompleted) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(text = "Typing finished", style = MaterialTheme.typography.headlineSmall)
+                Spacer(modifier = Modifier.height(12.dp))
+                val attempts = initialTotal + totalErrors
+                val successPercent = if (attempts > 0) (initialTotal * 100) / attempts else 0
+                Text("Errors: $totalErrors, Success: $successPercent%")
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = onRetry) { Text("Retry") }
+                    Button(onClick = onBackToMenu) { Text("Back to menu") }
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp)
+                    .focusRequester(focusRequester)
+                    .focusTarget()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.Enter) {
+                            if (!showAnswer) submit()
+                            true
+                        } else false
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Top,
+            ) {
+                Text(
+                    text = "Typing mode",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                val done = initialTotal - queue.size
+                Text("Progress: $done / $initialTotal")
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = currentPair?.original ?: "",
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TextField(
+                        value = answer,
+                        onValueChange = { if (!showAnswer) { answer = it; lastIncorrect = false } },
+                        singleLine = true,
+                        modifier = Modifier
+                            .width(400.dp),
+                        enabled = !showAnswer,
+                    )
+                    Button(onClick = { if (!showAnswer) submit() }, enabled = !showAnswer) { Text("OK") }
+                }
+                if (lastIncorrect) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Неверно, попробуйте ещё раз", color = Color.Red)
+                }
+                if (showAnswer && currentPair != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Правильный ответ: ${currentPair.translation}")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = { moveCurrentToEnd() }) { Text("Далее") }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        onClick = onRetry,
+                    ) { Text("Restart") }
+                    Button(
+                        onClick = onBackToMenu,
+                    ) { Text("Back") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SelectorScreen(
     pairs: List<WordPair>,
     pageSize: Int,
@@ -639,16 +913,27 @@ private fun SelectorScreen(
 
     val currentPair = pagePairs.getOrNull(questionIndex)
 
-    // Варианты ответов для текущего слова
-    val options: List<String> = remember(gameId, currentPage, questionIndex) {
+    // Варианты ответов для текущего слова — количество вариантов = pageSize
+    val options: List<String> = remember(gameId, currentPage, questionIndex, pageSize) {
         val allTranslations = pairs.map { it.translation }.distinct()
-        val correct = currentPair?.translation
-        if (correct == null) return@remember emptyList()
-        val incorrect = allTranslations.filter { it != correct }.shuffled().take(4)
-        (listOf(correct) + incorrect).shuffled()
+        val correct = currentPair?.translation ?: return@remember emptyList()
+
+        val desiredOptions = pageSize.coerceAtLeast(1)
+        val incorrectCount = (desiredOptions - 1).coerceAtLeast(0)
+
+        val incorrect = allTranslations
+            .filter { it != correct }
+            .shuffled()
+            .take(incorrectCount)
+
+        // Итоговый список без дубликатов, затем перемешиваем
+        (listOf(correct) + incorrect)
+            .distinct()
+            .shuffled()
     }
 
-    var disabledOptionIdx by remember(gameId, currentPage, questionIndex) { mutableStateOf(setOf<Int>()) }
+    // Индексы отключённых (уже выбирались ошибочно) вариантов; сбрасываем при смене вопроса или изменении pageSize
+    var disabledOptionIdx by remember(gameId, currentPage, questionIndex, pageSize) { mutableStateOf(setOf<Int>()) }
 
     fun goNext() {
         if (questionIndex + 1 < pagePairs.size) {
